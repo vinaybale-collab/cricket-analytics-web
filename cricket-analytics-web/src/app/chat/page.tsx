@@ -222,7 +222,7 @@ export default function ChatPage() {
         body: JSON.stringify({
           project_title: projectTitle.trim(),
           conversation,
-          author: 'Vinay Bale'
+          author: 'CricketAI'
         })
       });
 

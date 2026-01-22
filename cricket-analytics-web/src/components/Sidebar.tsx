@@ -174,8 +174,8 @@ const Sidebar = () => {
       </div>
 
       {/* Footer */}
-      <div className="border-t border-gray-800 p-4 space-y-4">
-        {/* Context Monitor */}
+      <div className="border-t border-gray-800 p-4">
+        {/* Database Status */}
         <div className="px-1">
           <div className="flex justify-between text-[10px] uppercase font-bold text-gray-500 mb-1.5">
             <span>Database</span>
@@ -183,18 +183,7 @@ const Sidebar = () => {
           </div>
           <div className="flex items-center gap-2 text-xs text-gray-400">
             <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-            11,336 matches | 5M+ balls
-          </div>
-        </div>
-
-        {/* User */}
-        <div className="flex items-center gap-3 px-1">
-          <div className="w-9 h-9 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center text-white font-bold text-sm">
-            VB
-          </div>
-          <div className="flex flex-col">
-            <span className="font-medium text-sm">Vinay Bale</span>
-            <span className="text-[10px] text-gray-500">$0 Deployment Plan</span>
+            11,535 matches | 5M+ balls
           </div>
         </div>
       </div>

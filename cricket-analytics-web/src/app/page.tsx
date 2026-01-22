@@ -125,34 +125,34 @@ export default function Home() {
   return (
     <MainLayout>
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-[1600px] mx-auto px-6 lg:px-12 py-10">
+        <div className="max-w-[1400px] mx-auto px-6 lg:px-10 py-6">
 
           {/* Main Grid: Content + Workflow Sidebar */}
-          <div className="grid lg:grid-cols-4 gap-10">
+          <div className="grid lg:grid-cols-4 gap-8">
 
             {/* Left Column: Main Content (3/4 width) */}
-            <div className="lg:col-span-3 space-y-10">
+            <div className="lg:col-span-3 space-y-6">
 
-              {/* Header - Larger */}
+              {/* Header */}
               <div className="text-center lg:text-left">
-                <div className="inline-flex items-center gap-3 px-5 py-2.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded-full text-base font-medium mb-6">
-                  <Database className="w-5 h-5" />
+                <div className="inline-flex items-center gap-2 px-4 py-2 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded-full text-sm font-medium mb-4">
+                  <Database className="w-4 h-4" />
                   11,535 matches | 5M+ balls | Data through Jan 2026
                 </div>
-                <h1 className="text-5xl md:text-6xl lg:text-7xl font-bold text-gray-900 dark:text-white mb-5 leading-tight">
+                <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold text-gray-900 dark:text-white mb-3 leading-tight">
                   Cricket Analytics Engine
                 </h1>
-                <p className="text-2xl text-gray-600 dark:text-gray-400 max-w-3xl">
+                <p className="text-lg text-gray-600 dark:text-gray-400 max-w-2xl">
                   Ask deep questions. Get publication-ready analysis with verified data.
                 </p>
               </div>
 
-              {/* Input Area - Larger and More Prominent */}
-              <div className="bg-white dark:bg-gray-800 rounded-2xl border-2 border-gray-200 dark:border-gray-700 shadow-lg p-8">
+              {/* Input Area */}
+              <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-md p-6">
                 <textarea
-                  className="w-full bg-transparent border-0 focus:ring-0 outline-none resize-none text-gray-900 dark:text-white placeholder:text-gray-400 text-2xl leading-relaxed"
+                  className="w-full bg-transparent border-0 focus:ring-0 outline-none resize-none text-gray-900 dark:text-white placeholder:text-gray-400 text-lg leading-relaxed"
                   placeholder="What cricket insight do you want to uncover?"
-                  rows={5}
+                  rows={4}
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
                   onKeyDown={(e) => {
@@ -161,18 +161,18 @@ export default function Home() {
                     }
                   }}
                 />
-                <div className="flex items-center justify-between pt-5 border-t border-gray-100 dark:border-gray-700">
-                  <span className="text-base text-gray-400">
+                <div className="flex items-center justify-between pt-4 border-t border-gray-100 dark:border-gray-700">
+                  <span className="text-sm text-gray-400">
                     Press Cmd+Enter to start
                   </span>
                   <button
                     onClick={handleStartAnalysis}
                     disabled={!prompt.trim() || isLoading}
-                    className="px-10 py-4 bg-purple-600 text-white rounded-xl font-semibold text-xl hover:bg-purple-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-3"
+                    className="px-6 py-2.5 bg-purple-600 text-white rounded-lg font-medium text-base hover:bg-purple-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
                   >
                     {isLoading ? (
                       <>
-                        <svg className="animate-spin h-6 w-6" viewBox="0 0 24 24">
+                        <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                         </svg>
@@ -181,7 +181,7 @@ export default function Home() {
                     ) : (
                       <>
                         Start Analysis
-                        <ArrowRight className="w-6 h-6" />
+                        <ArrowRight className="w-5 h-5" />
                       </>
                     )}
                   </button>
@@ -190,33 +190,33 @@ export default function Home() {
 
               {/* Example Prompts - Cards */}
               <div>
-                <h2 className="text-lg font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-6">
+                <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-4">
                   Example Deep Thoughts
                 </h2>
-                <div className="grid gap-5">
+                <div className="grid gap-3">
                   {deepExamples.map((example, idx) => (
                     <button
                       key={idx}
                       onClick={() => handleExampleClick(example.prompt)}
-                      className="text-left bg-white dark:bg-gray-800 rounded-xl border-2 border-gray-200 dark:border-gray-700 p-6 hover:border-purple-400 dark:hover:border-purple-600 hover:shadow-lg transition-all group"
+                      className="text-left bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 hover:border-purple-400 dark:hover:border-purple-600 hover:shadow-md transition-all group"
                     >
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
-                          <h3 className="font-bold text-xl text-gray-900 dark:text-white mb-2 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors">
+                          <h3 className="font-semibold text-base text-gray-900 dark:text-white mb-1 group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors">
                             {example.title}
                           </h3>
-                          <p className="text-lg text-gray-600 dark:text-gray-400 line-clamp-2">
+                          <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2">
                             {example.prompt.split('\n')[0]}
                           </p>
-                          <div className="flex gap-3 mt-4">
+                          <div className="flex gap-2 mt-2">
                             {example.tags.map((tag, tidx) => (
-                              <span key={tidx} className="text-sm px-3 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-full">
+                              <span key={tidx} className="text-xs px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-full">
                                 {tag}
                               </span>
                             ))}
                           </div>
                         </div>
-                        <ChevronRight className="w-7 h-7 text-gray-400 group-hover:text-purple-600 transition-colors flex-shrink-0 mt-2" />
+                        <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-purple-600 transition-colors flex-shrink-0 mt-1" />
                       </div>
                     </button>
                   ))}
@@ -225,29 +225,29 @@ export default function Home() {
 
               {/* Published Projects */}
               <div>
-                <h2 className="text-lg font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-6 flex items-center gap-3">
-                  <BarChart3 className="w-5 h-5" />
+                <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                  <BarChart3 className="w-4 h-4" />
                   Published Analyses
                 </h2>
-                <div className="grid md:grid-cols-2 gap-5">
+                <div className="grid md:grid-cols-2 gap-3">
                   {publishedProjects.map((project) => (
                     <Link
                       key={project.slug}
                       href={`/projects/${project.slug}`}
-                      className="flex items-center justify-between bg-white dark:bg-gray-800 rounded-xl border-2 border-gray-200 dark:border-gray-700 px-6 py-5 hover:border-purple-400 hover:shadow-lg transition-all group"
+                      className="flex items-center justify-between bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 px-4 py-3 hover:border-purple-400 hover:shadow-md transition-all group"
                     >
                       <div>
-                        <div className="flex items-center gap-3 mb-1">
-                          <span className="font-bold text-xl text-gray-900 dark:text-white group-hover:text-purple-600 transition-colors">
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <span className="font-semibold text-base text-gray-900 dark:text-white group-hover:text-purple-600 transition-colors">
                             {project.title}
                           </span>
                           {project.verified && (
-                            <CheckCircle className="w-5 h-5 text-green-500" />
+                            <CheckCircle className="w-4 h-4 text-green-500" />
                           )}
                         </div>
-                        <span className="text-base text-gray-500">{project.finding}</span>
+                        <span className="text-sm text-gray-500">{project.finding}</span>
                       </div>
-                      <ArrowRight className="w-6 h-6 text-gray-400 group-hover:text-purple-600 transition-colors" />
+                      <ArrowRight className="w-5 h-5 text-gray-400 group-hover:text-purple-600 transition-colors" />
                     </Link>
                   ))}
                 </div>
@@ -257,17 +257,17 @@ export default function Home() {
 
             {/* Right Column: Workflow Sidebar (1/4 width) */}
             <div className="lg:col-span-1">
-              <div className="sticky top-8 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-900 rounded-2xl border-2 border-gray-200 dark:border-gray-700 p-8">
+              <div className="sticky top-6 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
 
-                <h2 className="font-bold text-xl text-gray-900 dark:text-white mb-2">
+                <h2 className="font-semibold text-base text-gray-900 dark:text-white mb-1">
                   How It Works
                 </h2>
-                <p className="text-base text-gray-500 dark:text-gray-400 mb-8">
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
                   From question to publication
                 </p>
 
                 {/* Workflow Steps */}
-                <div className="space-y-6">
+                <div className="space-y-4">
                   {workflowSteps.map((step, idx) => {
                     const Icon = step.icon;
                     const isLast = idx === workflowSteps.length - 1;
@@ -276,28 +276,28 @@ export default function Home() {
                       <div key={step.number} className="relative">
                         {/* Connector Line */}
                         {!isLast && (
-                          <div className="absolute left-5 top-12 w-0.5 h-10 bg-gray-200 dark:bg-gray-700" />
+                          <div className="absolute left-4 top-9 w-0.5 h-6 bg-gray-200 dark:bg-gray-700" />
                         )}
 
-                        <div className="flex items-start gap-4">
+                        <div className="flex items-start gap-3">
                           {/* Step Icon */}
                           <div className={`
-                            w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0
+                            w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0
                             ${step.color === 'purple' ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400' : ''}
                             ${step.color === 'blue' ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400' : ''}
                             ${step.color === 'amber' ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400' : ''}
                             ${step.color === 'green' ? 'bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400' : ''}
                             ${step.color === 'emerald' ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400' : ''}
                           `}>
-                            <Icon className="w-5 h-5" />
+                            <Icon className="w-4 h-4" />
                           </div>
 
                           {/* Step Content */}
                           <div className="flex-1 min-w-0">
-                            <h3 className="text-base font-semibold text-gray-900 dark:text-white">
+                            <h3 className="text-sm font-medium text-gray-900 dark:text-white">
                               {step.title}
                             </h3>
-                            <p className="text-sm text-gray-500 dark:text-gray-400">
+                            <p className="text-xs text-gray-500 dark:text-gray-400">
                               {step.description}
                             </p>
                           </div>
