@@ -123,31 +123,43 @@ def get_db_connection():
 def get_database_schema() -> str:
     """Get the database schema for context in prompts"""
     return """
-    Database: DuckDB with Cricket ODI Data
+    Database: DuckDB with Cricket Data (5M+ balls, 11,336 matches)
 
     Tables:
-    1. ball_by_ball - Ball-by-ball data for ODI matches
+    1. balls - Ball-by-ball delivery data
        - match_id (VARCHAR): Unique match identifier
        - innings (INTEGER): Innings number (1 or 2)
        - over (INTEGER): Over number
        - ball (INTEGER): Ball number within the over
-       - striker (VARCHAR): Batsman facing the ball
+       - batter (VARCHAR): Batsman facing the ball
        - non_striker (VARCHAR): Batsman at the other end
        - bowler (VARCHAR): Bowler delivering the ball
+       - batting_team (VARCHAR): Team batting
+       - bowling_team (VARCHAR): Team bowling
        - runs_off_bat (INTEGER): Runs scored off the bat
-       - extras (INTEGER): Extra runs (wides, no-balls, etc.)
-       - wicket_type (VARCHAR): Type of dismissal if out (NULL if not out)
-       - player_dismissed (VARCHAR): Name of dismissed player (NULL if no wicket)
+       - extras (INTEGER): Extra runs
+       - total_runs (INTEGER): Total runs from this ball
+       - extra_type (VARCHAR): Type of extra (wide, noball, etc.)
+       - wicket_type (VARCHAR): Type of dismissal if out
+       - dismissed_batter (VARCHAR): Name of dismissed batter
+       - phase (VARCHAR): Match phase
+       - cumulative_runs (INTEGER): Running total of runs
+       - wickets_fallen (INTEGER): Wickets fallen so far
 
     2. matches - Match-level information
        - match_id (VARCHAR): Unique match identifier
        - date (DATE): Match date
        - venue (VARCHAR): Venue name
+       - city (VARCHAR): City
+       - country (VARCHAR): Country
+       - format (VARCHAR): Match format (ODI, T20, Test, etc.)
+       - gender (VARCHAR): male/female
        - team1 (VARCHAR): First team
        - team2 (VARCHAR): Second team
        - winner (VARCHAR): Winning team
        - toss_winner (VARCHAR): Team that won the toss
        - toss_decision (VARCHAR): bat/field
+       - player_of_match (VARCHAR): Player of the match
 
     Common Derived Metrics:
     - Strike Rate = (runs / balls) * 100
