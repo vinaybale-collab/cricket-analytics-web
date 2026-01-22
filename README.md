@@ -28,14 +28,20 @@ Generate publication-quality cricket analytics articles and Twitter threads usin
 ## ⚡ Quick Start (For Returning Users)
 
 **Run an analysis:**
-```batch
-cd "C:\Users\Vinay Bale\Documents\cricket_analytics"
-python scripts\century_acceleration_analysis.py
+```bash
+# Navigate to your cloned repo directory
+cd cricket-analytics-web
+python scripts/century_acceleration_analysis.py
 ```
 
 **Update database:**
-```batch
+```bash
+# On Windows:
 scripts\update_database.bat
+
+# On Mac/Linux:
+python scripts/download_cricsheet.py --new-only
+python scripts/ingest_cricsheet.py --new-only
 ```
 
 **Use Claude Projects:**
@@ -79,27 +85,27 @@ cricket_analytics/
 ## 🔧 Common Commands
 
 **Install dependencies:**
-```batch
+```bash
 pip install -r requirements.txt
 ```
 
 **Download data (first time):**
-```batch
-python scripts\download_cricsheet.py
+```bash
+python scripts/download_cricsheet.py
 ```
 
 **Create database (first time):**
-```batch
-duckdb cricket_analytics.duckdb < scripts\create_database.sql
+```bash
+duckdb cricket_analytics.duckdb < scripts/create_database.sql
 ```
 
 **Load data (first time):**
-```batch
-python scripts\ingest_cricsheet.py
+```bash
+python scripts/ingest_cricsheet.py
 ```
 
 **Check database:**
-```batch
+```bash
 python -c "import duckdb; conn = duckdb.connect('cricket_analytics.duckdb'); print('Matches:', conn.execute('SELECT COUNT(*) FROM matches').fetchone()[0])"
 ```
 
