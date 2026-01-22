@@ -1,6 +1,7 @@
 import os
 import json
 import duckdb
+from datetime import datetime, date
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -8,13 +9,38 @@ from typing import List, Optional, Dict, Any
 import google.generativeai as genai
 
 # --- Configuration ---
-# In production, use os.environ.get("GEMINI_API_KEY")
-# For the Free Tier, you can hardcode it here LOCALLY, but never commit it to GitHub.
-# We will read it from environment variables for safety.
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
+
+# --- Rate Limiting (Free Tier Protection) ---
+# Gemini Free Tier: 1,500 requests/day
+# We limit to 1,400 to have buffer
+DAILY_LIMIT = 1400
+rate_limit_state = {
+    "date": str(date.today()),
+    "count": 0
+}
+
+
+def check_rate_limit():
+    """Check if we've exceeded daily free tier limit. Raises 429 if exceeded."""
+    today = str(date.today())
+
+    # Reset counter if new day
+    if rate_limit_state["date"] != today:
+        rate_limit_state["date"] = today
+        rate_limit_state["count"] = 0
+
+    if rate_limit_state["count"] >= DAILY_LIMIT:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Daily free tier limit reached ({DAILY_LIMIT} requests). Service will resume tomorrow. No charges incurred."
+        )
+
+    rate_limit_state["count"] += 1
+    return rate_limit_state["count"]
 
 app = FastAPI(
     title="Cricket Analytics API",
@@ -140,6 +166,8 @@ def decompose_prompt_to_steps(prompt: str, max_steps: int = 6) -> List[Dict[str,
     if not GEMINI_API_KEY:
         raise HTTPException(status_code=500, detail="Gemini API Key not configured")
 
+    check_rate_limit()  # Enforce free tier limit
+
     model = genai.GenerativeModel('gemini-1.5-flash')
 
     decomposition_prompt = f"""
@@ -202,6 +230,8 @@ def generate_sql_for_step(step: Dict[str, str], schema: str) -> str:
     """
     if not GEMINI_API_KEY:
         raise HTTPException(status_code=500, detail="Gemini API Key not configured")
+
+    check_rate_limit()  # Enforce free tier limit
 
     model = genai.GenerativeModel('gemini-1.5-flash')
 
@@ -414,6 +444,8 @@ def generate_sql_from_prompt(prompt: str) -> str:
     """
     if not GEMINI_API_KEY:
         raise HTTPException(status_code=500, detail="Gemini API Key not configured")
+
+    check_rate_limit()  # Enforce free tier limit
 
     model = genai.GenerativeModel('gemini-1.5-flash')
 
@@ -1446,4 +1478,26 @@ def publish_status():
     return {
         "status": "ready",
         "description": "Publish validated projects to output folder"
+    }
+
+
+@app.get("/rate-limit")
+def get_rate_limit():
+    """Check remaining free tier requests for today"""
+    today = str(date.today())
+
+    # Reset counter if new day
+    if rate_limit_state["date"] != today:
+        rate_limit_state["date"] = today
+        rate_limit_state["count"] = 0
+
+    remaining = DAILY_LIMIT - rate_limit_state["count"]
+
+    return {
+        "date": today,
+        "used": rate_limit_state["count"],
+        "remaining": remaining,
+        "daily_limit": DAILY_LIMIT,
+        "status": "OK" if remaining > 0 else "LIMIT_REACHED",
+        "message": f"{remaining} requests remaining today" if remaining > 0 else "Daily limit reached. Service resumes tomorrow."
     }
