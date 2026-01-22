@@ -1,0 +1,31 @@
+{
+  "agent_name": "Cricket-Validation-Agent v1.0",
+  "timestamp": "2026-01-22T10:00:00Z",
+  "status": "success",
+  "items": [
+    {
+      "claim": "Jadeja's bowling average overseas with Ashwin is 23.2",
+      "verified_value": "23.23",
+      "source_table": "table4_controlled_away_only",
+      "status": "verified"
+    },
+    {
+      "claim": "Ashwin takes 67.3% of first wickets",
+      "verified_value": "67.31%",
+      "source_table": "Hypothesis 2: Strike Bowler",
+      "status": "verified"
+    },
+    {
+      "claim": "Correlation between Ashwin's economy and Jadeja's strike rate is -0.159",
+      "verified_value": "-0.159",
+      "source_table": "Hypothesis 1: Pressure Cooker",
+      "status": "verified"
+    },
+    {
+      "claim": "Jadeja's dot ball percentage is 77.6%",
+      "verified_value": "77.58%",
+      "source_table": "table3_dot_ball_pressure",
+      "status": "verified"
+    }
+  ]
+}
