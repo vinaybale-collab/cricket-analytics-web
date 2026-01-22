@@ -137,7 +137,7 @@ export default function Home() {
               <div className="text-center lg:text-left">
                 <div className="inline-flex items-center gap-3 px-5 py-2.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded-full text-base font-medium mb-6">
                   <Database className="w-5 h-5" />
-                  11,336 matches | 5M+ balls | 1990-2025
+                  11,535 matches | 5M+ balls | Data through Jan 2026
                 </div>
                 <h1 className="text-5xl md:text-6xl lg:text-7xl font-bold text-gray-900 dark:text-white mb-5 leading-tight">
                   Cricket Analytics Engine
