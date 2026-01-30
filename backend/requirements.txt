@@ -11,6 +11,9 @@ duckdb==1.1.3
 # AI/ML - Gemini Free Tier (gemini-2.5-flash-lite: 15 RPM, 1,000 RPD)
 google-genai>=1.0.0
 
+# Environment Variables
+python-dotenv>=1.0.0
+
 # Data Processing
 pandas==2.2.3
 
