@@ -131,9 +131,9 @@ export default function ChatPage() {
     try {
       const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
 
-      // Use deep analysis for first message or complex queries
-      const isDeepAnalysis = messages.length === 0 && promptText.length > 200;
-      const endpoint = isDeepAnalysis ? '/analyze-deep' : '/analyze';
+      // Always use deep analysis - AI autonomously decides what analyses to run
+      const isDeepAnalysis = true;
+      const endpoint = '/analyze-deep';
 
       const response = await fetch(`${backendUrl}${endpoint}`, {
         method: 'POST',

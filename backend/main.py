@@ -1,23 +1,33 @@
 import os
+from dotenv import load_dotenv
+load_dotenv()  # Load .env file before anything else
+
 import json
+import time
 import duckdb
 from datetime import datetime, date
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
-import google.generativeai as genai
+from google import genai
 
 # --- Configuration ---
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
+# Initialize the new Google GenAI client
+genai_client = None
 if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+    genai_client = genai.Client(api_key=GEMINI_API_KEY)
+
+# Model: gemini-2.5-flash-lite has the best free tier (15 RPM, 1,000 RPD)
+# Note: gemini-2.0-flash is deprecated and shuts down March 31, 2026
+GEMINI_MODEL = 'gemini-2.5-flash-lite'
 
 # --- Rate Limiting (Free Tier Protection) ---
-# Gemini Free Tier: 1,500 requests/day
-# We limit to 1,400 to have buffer
-DAILY_LIMIT = 1400
+# gemini-2.5-flash-lite Free Tier: 15 RPM, 1,000 RPD
+# We limit to 950 to have buffer
+DAILY_LIMIT = 950
 rate_limit_state = {
     "date": str(date.today()),
     "count": 0
@@ -42,6 +52,81 @@ def check_rate_limit():
     rate_limit_state["count"] += 1
     return rate_limit_state["count"]
 
+
+# --- Throttling & Retry (Free Tier Protection) ---
+# gemini-2.5-flash-lite Free Tier: 15 RPM, 1,000 RPD
+# We space calls 5s apart = max 12/min (safely under 15 RPM)
+_last_gemini_call_time = 0.0
+MIN_CALL_INTERVAL = 5  # seconds between calls
+
+
+def call_gemini(prompt: str, max_retries: int = 3) -> str:
+    """
+    Central Gemini API caller with:
+    - API key validation
+    - Per-minute throttling (5s between calls)
+    - Exponential backoff retry on 429 errors
+    - Daily rate limit check
+    Returns the raw response text (stripped).
+    """
+    global _last_gemini_call_time
+
+    if not GEMINI_API_KEY or not genai_client:
+        raise HTTPException(
+            status_code=500,
+            detail="Gemini API Key not configured. Set GEMINI_API_KEY environment variable."
+        )
+
+    for attempt in range(max_retries):
+        try:
+            check_rate_limit()
+
+            # Throttle: ensure minimum interval between calls
+            now = time.time()
+            elapsed = now - _last_gemini_call_time
+            if elapsed < MIN_CALL_INTERVAL:
+                time.sleep(MIN_CALL_INTERVAL - elapsed)
+
+            response = genai_client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=prompt
+            )
+            _last_gemini_call_time = time.time()
+            return response.text.strip()
+
+        except HTTPException:
+            raise  # Re-raise our own rate limit errors (daily limit)
+        except Exception as e:
+            error_str = str(e)
+            is_rate_limit = any(
+                kw in error_str.lower()
+                for kw in ['429', 'quota', 'rate limit', 'resource exhausted', 'rate_limit']
+            )
+
+            if is_rate_limit and attempt < max_retries - 1:
+                # Exponential backoff: 60s, 120s, 240s
+                delay = 60 * (2 ** attempt)
+                print(f"[Rate Limit] Attempt {attempt + 1}/{max_retries} failed. Retrying in {delay}s...")
+                time.sleep(delay)
+                continue
+
+            if is_rate_limit:
+                raise HTTPException(
+                    status_code=429,
+                    detail=f"Gemini API rate limit exceeded after {max_retries} retries. Please wait a minute and try again."
+                )
+            raise
+
+
+def clean_json_response(text: str) -> str:
+    """Clean markdown formatting from Gemini JSON responses."""
+    if text.startswith('```'):
+        text = text.split('```')[1]
+        if text.startswith('json'):
+            text = text[4:]
+    return text.strip()
+
+
 app = FastAPI(
     title="Cricket Analytics API",
     description="Natural language to SQL analysis engine for cricket data",
@@ -49,14 +134,10 @@ app = FastAPI(
 )
 
 # --- CORS Configuration ---
-# Allow frontend origins (Vercel + localhost for development)
+# Allow all origins (public API)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "https://*.vercel.app",  # All Vercel preview deployments
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -91,15 +172,15 @@ class ChartRecommendation(BaseModel):
     chart_type: str  # bar, line, pie, scatter, area, radar, horizontal-bar, composed
     title: str
     data_key: str  # which step's data to use
-    x_axis: str
-    y_axis: str
+    x_axis: Optional[str] = None
+    y_axis: Optional[str] = None
     description: str
 
 
 class DeepAnalysisRequest(BaseModel):
     """Request for comprehensive multi-step analysis"""
     prompt: str
-    max_steps: Optional[int] = 6
+    max_steps: Optional[int] = 4
 
 
 class DeepAnalysisResponse(BaseModel):
@@ -123,10 +204,14 @@ def get_db_connection():
 def get_database_schema() -> str:
     """Get the database schema for context in prompts"""
     return """
-    Database: DuckDB with Cricket Data (5M+ balls, 11,336 matches)
+    Database: DuckDB with Cricket Data (5M+ balls, 11,535 matches)
 
-    Tables:
-    1. balls - Ball-by-ball delivery data
+    ===========================================
+    TABLE 1: balls - Ball-by-ball delivery data (COMPLETE, 100% ACCURATE)
+    ===========================================
+    Use for: Career stats, aggregates, strike rates, averages, head-to-head records
+
+    Columns:
        - match_id (VARCHAR): Unique match identifier
        - innings (INTEGER): Innings number (1 or 2)
        - over (INTEGER): Over number
@@ -146,7 +231,12 @@ def get_database_schema() -> str:
        - cumulative_runs (INTEGER): Running total of runs
        - wickets_fallen (INTEGER): Wickets fallen so far
 
-    2. matches - Match-level information
+    ===========================================
+    TABLE 2: matches - Match-level information (COMPLETE, 100% ACCURATE)
+    ===========================================
+    Use for: Match results, venue analysis, toss impact, team records
+
+    Columns:
        - match_id (VARCHAR): Unique match identifier
        - date (DATE): Match date
        - venue (VARCHAR): Venue name
@@ -161,68 +251,181 @@ def get_database_schema() -> str:
        - toss_decision (VARCHAR): bat/field
        - player_of_match (VARCHAR): Player of the match
 
+    ===========================================
+    TABLE 3: commentary - NLP-extracted delivery features (PARTIAL COVERAGE, IPL ONLY)
+    ===========================================
+    IMPORTANT: This table has PARTIAL coverage (~48% for length, ~10% for delivery types).
+    Use ONLY for delivery-specific analysis that balls table CANNOT answer.
+
+    Coverage: 89,993 entries linked to Cricsheet matches (IPL 2017-2025)
+
+    Columns:
+       - commentary_id (TEXT): Unique identifier
+       - cricsheet_match_id (TEXT): Links to matches.match_id (use for JOINs)
+       - match_id (TEXT): ESPN match ID (do not use for JOINs)
+       - innings (INT), over (INT), ball (INT): Ball position
+       - text (TEXT): Raw commentary text
+
+       NLP-Extracted Features (BOOLEAN flags):
+       - length_short: Mentions short/bouncer (30,169 entries, 20.9%)
+       - length_full: Mentions full/yorker/pitched up (28,000 entries, 19.4%)
+       - length_good: Mentions good length (14,906 entries, 10.3%)
+       - line_off: Mentions off stump/outside off (32,281 entries, 22.3%)
+       - line_middle: Mentions middle stump (8,986 entries, 6.2%)
+       - line_leg: Mentions leg side (11,226 entries, 7.8%)
+       - mention_yorker: Specifically mentions yorker (5,744 entries, 4.0%)
+       - mention_bouncer: Specifically mentions bouncer (1,440 entries, 1.0%)
+       - mention_swing: Mentions swing movement (3,960 entries, 2.7%)
+       - mention_spin: Mentions spin/turn (3,787 entries, 2.6%)
+       - mention_beaten: Batsman beaten by delivery (3,273 entries, 2.3%)
+       - mention_edge: Ball edged by batsman (11,714 entries, 8.1%)
+       - mention_mistimed: Shot mistimed (3,222 entries, 2.2%)
+       - sentiment_score (FLOAT): Commentary sentiment (-1 to +1)
+
+    ===========================================
+    CRITICAL RULES FOR USING COMMENTARY DATA
+    ===========================================
+
+    RULE 1 - USE commentary for DELIVERY-SPECIFIC questions:
+       Good: "What's the wicket rate when yorkers are bowled?"
+       Good: "Do off-stump deliveries cause more edges?"
+       Good: "Which bowlers get batsmen beaten most often?"
+       These questions CANNOT be answered from balls table alone.
+
+    RULE 2 - DO NOT USE commentary for AGGREGATE STATISTICS:
+       Bad: "Virat Kohli's career strike rate" → Use balls table (100% accurate)
+       Bad: "Most wickets in IPL history" → Use balls table (complete data)
+       Bad: "Head-to-head: CSK vs MI" → Use balls + matches (complete)
+
+    RULE 3 - ALWAYS JOIN using cricsheet_match_id:
+       SELECT b.bowler, COUNT(*) as yorkers, SUM(CASE WHEN b.wicket_type IS NOT NULL THEN 1 ELSE 0 END) as wickets
+       FROM commentary c
+       JOIN balls b ON c.cricsheet_match_id = b.match_id
+                   AND c.innings = b.innings
+                   AND c.over = b.over
+                   AND c.ball = b.ball
+       WHERE c.mention_yorker = TRUE
+       GROUP BY b.bowler
+
+    RULE 4 - ALWAYS CAVEAT commentary-based insights:
+       Say: "Based on 5,744 deliveries where yorkers were mentioned in IPL commentary..."
+       NOT: "Yorkers have a 15% wicket rate" (implies completeness)
+
+    RULE 5 - Commentary is IPL-ONLY (2017-2025):
+       Do NOT use for ODIs, Tests, or other T20 leagues.
+
+    ===========================================
+    EXAMPLE QUERIES
+    ===========================================
+
+    GOOD - Yorker effectiveness (uses commentary):
+    SELECT
+        b.bowler,
+        COUNT(*) as yorkers_bowled,
+        SUM(CASE WHEN b.wicket_type IS NOT NULL THEN 1 ELSE 0 END) as wickets,
+        ROUND(AVG(b.runs_off_bat), 2) as avg_runs
+    FROM commentary c
+    JOIN balls b ON c.cricsheet_match_id = b.match_id
+                AND c.innings = b.innings AND c.over = b.over AND c.ball = b.ball
+    WHERE c.mention_yorker = TRUE AND c.cricsheet_match_id IS NOT NULL
+    GROUP BY b.bowler
+    HAVING COUNT(*) >= 20
+    ORDER BY wickets DESC
+
+    GOOD - Career stats (uses balls only):
+    SELECT batter, SUM(runs_off_bat) as runs, COUNT(*) as balls,
+           ROUND(SUM(runs_off_bat) * 100.0 / COUNT(*), 2) as strike_rate
+    FROM balls
+    GROUP BY batter
+    ORDER BY runs DESC
+
+    ===========================================
     Common Derived Metrics:
     - Strike Rate = (runs / balls) * 100
     - Batting Average = runs / dismissals
     - Economy Rate = runs_conceded / overs
 
+    ===========================================
+    PLAYER NAME FORMAT (CRITICAL)
+    ===========================================
+    Players are stored in ABBREVIATED Cricsheet format, NOT full names.
+    Examples:
+       - "V Kohli" (not "Virat Kohli")
+       - "RG Sharma" (not "Rohit Sharma")
+       - "MS Dhoni" (not "Mahendra Singh Dhoni")
+       - "JJ Bumrah" (not "Jasprit Bumrah")
+       - "YS Chahal" (not "Yuzvendra Chahal")
+       - "Kuldeep Yadav" (some names are full, varies by player)
+       - "AB de Villiers" (not "Abraham de Villiers")
+       - "SPD Smith" (not "Steve Smith")
+       - "JE Root" (not "Joe Root")
+       - "BA Stokes" (not "Ben Stokes")
+
+    IMPORTANT: When the user mentions a player by full name, use LIKE patterns to find them:
+       WHERE bowler LIKE '%Chahal%' OR bowler LIKE '%Kuldeep%'
+    Or use the abbreviated form if you know it.
+
     Note: Use DuckDB SQL syntax. Common functions: ROW_NUMBER(), SUM(), AVG(), COUNT(), CASE WHEN
     """
 
 
-def decompose_prompt_to_steps(prompt: str, max_steps: int = 6) -> List[Dict[str, str]]:
+def decompose_and_generate_sql(prompt: str, schema: str, max_steps: int = 4) -> List[Dict[str, Any]]:
     """
-    Uses Gemini to break down a comprehensive analysis prompt into discrete analytical steps.
-    This is the first stage of the agentic workflow.
+    Combined: Decomposes prompt into analytical steps AND generates SQL for each.
+    This reduces API calls from N+1 to just 1 (was: 1 decompose + N SQL generations).
+    The AI AUTONOMOUSLY decides what analyses to perform.
     """
-    if not GEMINI_API_KEY:
-        raise HTTPException(status_code=500, detail="Gemini API Key not configured")
+    combined_prompt = f"""
+    You are a cricket analytics expert with deep SQL expertise.
 
-    check_rate_limit()  # Enforce free tier limit
+    A user wants to understand a cricket topic. Your job is to:
+    1. Think AUTONOMOUSLY about ALL analytical dimensions that would help answer this question
+    2. Break it into exactly {max_steps} discrete analytical steps
+    3. Write a valid DuckDB SQL query for each step
 
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    {schema}
 
-    decomposition_prompt = f"""
-    You are a cricket analytics expert. A user wants a comprehensive analysis.
-    Break down their request into {max_steps} discrete analytical steps.
-
-    Each step should:
-    1. Answer one specific research question
-    2. Be independently queryable via SQL
-    3. Build toward the overall analysis
-
-    User's Request:
+    User's Question:
     "{prompt}"
 
-    Return a JSON array with exactly this structure (no markdown, just raw JSON):
+    AUTONOMOUS ANALYSIS - Think about these dimensions WITHOUT the user telling you:
+    - Overall aggregate statistics (career totals, averages, strike rates)
+    - Year-by-year or era-wise evolution and trends
+    - Opposition-wise breakdown (performance vs different teams)
+    - Venue or country-based patterns (home vs away, specific grounds)
+    - Format-specific patterns (ODI vs T20 vs Test) if relevant
+    - Phase-of-innings analysis (powerplay, middle overs, death overs)
+    - Comparative analysis (vs peers, vs benchmarks, together vs apart)
+    - Contextual factors (batting first vs chasing, toss impact)
+    - Situational analysis (pressure situations, big matches)
+    - Partnership and combination analysis if multiple players involved
+
+    Pick the {max_steps} MOST INSIGHTFUL angles. Don't just answer literally - provide deeper insight.
+
+    Return a JSON array (no markdown, raw JSON only):
     [
         {{
             "step_number": 1,
-            "title": "Brief title for this step",
-            "research_question": "Specific question this step answers"
+            "title": "Brief title for this analysis angle",
+            "research_question": "Specific question this step answers",
+            "sql_query": "SELECT ... FROM ... -- valid DuckDB SQL"
         }},
         ...
     ]
 
-    Focus on:
-    - Statistical patterns (means, distributions)
-    - Contextual analysis (when/where/how patterns change)
-    - Player-specific insights (top performers, outliers)
-    - Temporal trends (evolution over time/eras)
-    - Causal mechanisms (why patterns exist)
+    SQL Requirements:
+    - DuckDB SQL syntax
+    - Appropriate aggregations, GROUP BY, ORDER BY
+    - LIMIT 50 max unless aggregating everything
+    - Clear column aliases (e.g., AS strike_rate, AS avg_runs)
+    - Handle NULLs appropriately
+    - Use correct table names: balls, matches, commentary
 
     Return ONLY valid JSON, no explanations.
     """
 
-    response = model.generate_content(decomposition_prompt)
-    response_text = response.text.strip()
-
-    # Clean up potential markdown formatting
-    if response_text.startswith('```'):
-        response_text = response_text.split('```')[1]
-        if response_text.startswith('json'):
-            response_text = response_text[4:]
-    response_text = response_text.strip()
+    response_text = call_gemini(combined_prompt)
+    response_text = clean_json_response(response_text)
 
     try:
         steps = json.loads(response_text)
@@ -232,45 +435,9 @@ def decompose_prompt_to_steps(prompt: str, max_steps: int = 6) -> List[Dict[str,
         return [{
             "step_number": 1,
             "title": "Main Analysis",
-            "research_question": prompt
+            "research_question": prompt,
+            "sql_query": None
         }]
-
-
-def generate_sql_for_step(step: Dict[str, str], schema: str) -> str:
-    """
-    Generates SQL for a single analytical step.
-    """
-    if not GEMINI_API_KEY:
-        raise HTTPException(status_code=500, detail="Gemini API Key not configured")
-
-    check_rate_limit()  # Enforce free tier limit
-
-    model = genai.GenerativeModel('gemini-1.5-flash')
-
-    sql_prompt = f"""
-    You are an expert Cricket Analyst with SQL expertise.
-
-    {schema}
-
-    Generate a DuckDB SQL query to answer this research question:
-
-    Step: {step.get('title', '')}
-    Question: {step.get('research_question', '')}
-
-    Requirements:
-    - Return ONLY the SQL query, no markdown formatting, no explanations
-    - Use appropriate aggregations and groupings
-    - Include relevant columns for visualization
-    - Limit results to meaningful subset (LIMIT 50 max unless aggregating)
-    - Use clear column aliases
-    - Handle NULL values appropriately
-
-    SQL Query:
-    """
-
-    response = model.generate_content(sql_prompt)
-    sql = response.text.replace('```sql', '').replace('```', '').strip()
-    return sql
 
 
 def synthesize_article(
@@ -282,11 +449,6 @@ def synthesize_article(
     Synthesizes all analytical results into a comprehensive article.
     This is the final stage of the agentic workflow.
     """
-    if not GEMINI_API_KEY:
-        raise HTTPException(status_code=500, detail="Gemini API Key not configured")
-
-    model = genai.GenerativeModel('gemini-1.5-flash')
-
     # Build context from all steps
     steps_context = ""
     for step in steps:
@@ -346,15 +508,8 @@ def synthesize_article(
     Return ONLY valid JSON.
     """
 
-    response = model.generate_content(synthesis_prompt)
-    response_text = response.text.strip()
-
-    # Clean up potential markdown formatting
-    if response_text.startswith('```'):
-        response_text = response_text.split('```')[1]
-        if response_text.startswith('json'):
-            response_text = response_text[4:]
-    response_text = response_text.strip()
+    response_text = call_gemini(synthesis_prompt)
+    response_text = clean_json_response(response_text)
 
     try:
         result = json.loads(response_text)
@@ -378,11 +533,6 @@ def generate_chart_recommendations(
     """
     Generates chart recommendations based on the analytical steps and their results.
     """
-    if not GEMINI_API_KEY:
-        raise HTTPException(status_code=500, detail="Gemini API Key not configured")
-
-    model = genai.GenerativeModel('gemini-1.5-flash')
-
     # Build context from steps with results
     steps_with_data = []
     for step in steps:
@@ -433,15 +583,8 @@ def generate_chart_recommendations(
     Generate 3-6 chart recommendations. Return ONLY valid JSON.
     """
 
-    response = model.generate_content(chart_prompt)
-    response_text = response.text.strip()
-
-    # Clean up potential markdown formatting
-    if response_text.startswith('```'):
-        response_text = response_text.split('```')[1]
-        if response_text.startswith('json'):
-            response_text = response_text[4:]
-    response_text = response_text.strip()
+    response_text = call_gemini(chart_prompt)
+    response_text = clean_json_response(response_text)
 
     try:
         recommendations = json.loads(response_text)
@@ -452,15 +595,8 @@ def generate_chart_recommendations(
 
 def generate_sql_from_prompt(prompt: str) -> str:
     """
-    Uses Gemini 1.5 Flash to convert natural language to DuckDB SQL.
+    Uses Gemini to convert natural language to DuckDB SQL.
     """
-    if not GEMINI_API_KEY:
-        raise HTTPException(status_code=500, detail="Gemini API Key not configured")
-
-    check_rate_limit()  # Enforce free tier limit
-
-    model = genai.GenerativeModel('gemini-1.5-flash')
-
     schema = get_database_schema()
 
     full_prompt = f"""
@@ -474,8 +610,8 @@ def generate_sql_from_prompt(prompt: str) -> str:
     User Question: {prompt}
     """
 
-    response = model.generate_content(full_prompt)
-    sql = response.text.replace('```sql', '').replace('```', '').strip()
+    response_text = call_gemini(full_prompt)
+    sql = response_text.replace('```sql', '').replace('```', '').strip()
     return sql
 
 # --- API Endpoints ---
@@ -536,10 +672,13 @@ def analyze_deep(request: DeepAnalysisRequest):
     try:
         schema = get_database_schema()
 
-        # Step 1: Decompose the prompt into analytical steps
-        raw_steps = decompose_prompt_to_steps(request.prompt, request.max_steps or 6)
+        # Step 1: Decompose prompt into steps WITH SQL in a single API call
+        # (Previously required N+1 calls; now just 1)
+        raw_steps = decompose_and_generate_sql(
+            request.prompt, schema, request.max_steps or 4
+        )
 
-        # Step 2: Generate SQL and execute for each step
+        # Step 2: Execute SQL for each step (no API calls needed here)
         analytical_steps: List[AnalyticalStep] = []
         total_records = 0
 
@@ -550,34 +689,33 @@ def analyze_deep(request: DeepAnalysisRequest):
                 research_question=raw_step.get("research_question", "")
             )
 
-            try:
-                # Generate SQL for this step
-                sql_query = generate_sql_for_step(raw_step, schema)
+            sql_query = raw_step.get("sql_query")
+            if sql_query:
                 step.sql_query = sql_query
+                try:
+                    con = get_db_connection()
+                    df = con.execute(sql_query).fetchdf()
+                    results = df.to_dict(orient='records')
+                    con.close()
 
-                # Execute the SQL
-                con = get_db_connection()
-                df = con.execute(sql_query).fetchdf()
-                results = df.to_dict(orient='records')
-                con.close()
+                    step.results = results
+                    total_records += len(results)
 
-                step.results = results
-                total_records += len(results)
+                    if results:
+                        step.insight = f"Found {len(results)} records. "
+                        if len(results) > 0:
+                            first_row = results[0]
+                            numeric_cols = [k for k, v in first_row.items()
+                                          if isinstance(v, (int, float)) and v is not None]
+                            if numeric_cols:
+                                key_col = numeric_cols[0]
+                                step.insight += f"Key metric ({key_col}): {first_row[key_col]}"
 
-                # Generate quick insight for this step
-                if results:
-                    step.insight = f"Found {len(results)} records. "
-                    if len(results) > 0:
-                        first_row = results[0]
-                        numeric_cols = [k for k, v in first_row.items()
-                                      if isinstance(v, (int, float)) and v is not None]
-                        if numeric_cols:
-                            key_col = numeric_cols[0]
-                            step.insight += f"Key metric ({key_col}): {first_row[key_col]}"
-
-            except Exception as step_error:
-                step.error = str(step_error)
-                step.insight = f"Query failed: {str(step_error)[:100]}"
+                except Exception as step_error:
+                    step.error = str(step_error)
+                    step.insight = f"Query failed: {str(step_error)[:100]}"
+            else:
+                step.error = "No SQL query generated for this step"
 
             analytical_steps.append(step)
 
@@ -681,11 +819,6 @@ def synthesize_conversation_to_article(
     Synthesizes an entire conversation history into a publishable article.
     Uses the Utsav Mamoria narrative style from QUALITY_STANDARDS.md.
     """
-    if not GEMINI_API_KEY:
-        raise HTTPException(status_code=500, detail="Gemini API Key not configured")
-
-    model = genai.GenerativeModel('gemini-1.5-flash')
-
     # Build conversation context
     conversation_context = ""
     for msg in conversation:
@@ -759,15 +892,8 @@ def synthesize_conversation_to_article(
     Return ONLY valid JSON.
     """
 
-    response = model.generate_content(synthesis_prompt)
-    response_text = response.text.strip()
-
-    # Clean up potential markdown formatting
-    if response_text.startswith('```'):
-        response_text = response_text.split('```')[1]
-        if response_text.startswith('json'):
-            response_text = response_text[4:]
-    response_text = response_text.strip()
+    response_text = call_gemini(synthesis_prompt)
+    response_text = clean_json_response(response_text)
 
     try:
         return json.loads(response_text)
@@ -789,8 +915,6 @@ def generate_charts_for_data(data_sets: List[Dict[str, Any]]) -> List[ChartRecom
     """
     if not GEMINI_API_KEY or not data_sets:
         return []
-
-    model = genai.GenerativeModel('gemini-1.5-flash')
 
     # Build data structure info
     data_info = []
@@ -846,14 +970,8 @@ def generate_charts_for_data(data_sets: List[Dict[str, Any]]) -> List[ChartRecom
     Return ONLY valid JSON.
     """
 
-    response = model.generate_content(chart_prompt)
-    response_text = response.text.strip()
-
-    if response_text.startswith('```'):
-        response_text = response_text.split('```')[1]
-        if response_text.startswith('json'):
-            response_text = response_text[4:]
-    response_text = response_text.strip()
+    response_text = call_gemini(chart_prompt)
+    response_text = clean_json_response(response_text)
 
     try:
         recommendations = json.loads(response_text)
@@ -1001,11 +1119,6 @@ def extract_claims_from_article(article: str, key_stats: List[Dict]) -> List[Dic
     """
     Uses Gemini to extract all verifiable claims from an article.
     """
-    if not GEMINI_API_KEY:
-        raise HTTPException(status_code=500, detail="Gemini API Key not configured")
-
-    model = genai.GenerativeModel('gemini-1.5-flash')
-
     extraction_prompt = f"""
     You are a fact-checker for cricket analytics articles.
 
@@ -1049,14 +1162,8 @@ def extract_claims_from_article(article: str, key_stats: List[Dict]) -> List[Dic
     Return ONLY valid JSON.
     """
 
-    response = model.generate_content(extraction_prompt)
-    response_text = response.text.strip()
-
-    if response_text.startswith('```'):
-        response_text = response_text.split('```')[1]
-        if response_text.startswith('json'):
-            response_text = response_text[4:]
-    response_text = response_text.strip()
+    response_text = call_gemini(extraction_prompt)
+    response_text = clean_json_response(response_text)
 
     try:
         return json.loads(response_text)
@@ -1070,8 +1177,6 @@ def verify_claim_with_database(claim: Dict[str, Any], schema: str) -> Dict[str, 
     """
     if not GEMINI_API_KEY:
         return {"verified": False, "error": "Gemini not configured"}
-
-    model = genai.GenerativeModel('gemini-1.5-flash')
 
     # Generate verification SQL
     sql_prompt = f"""
@@ -1091,8 +1196,8 @@ def verify_claim_with_database(claim: Dict[str, Any], schema: str) -> Dict[str, 
     Return ONLY the SQL query, no markdown, no explanation.
     """
 
-    response = model.generate_content(sql_prompt)
-    sql_query = response.text.replace('```sql', '').replace('```', '').strip()
+    response_text = call_gemini(sql_prompt)
+    sql_query = response_text.replace('```sql', '').replace('```', '').strip()
 
     # Execute the query
     try:
@@ -1137,8 +1242,6 @@ def verify_claim_with_web_search(claim: Dict[str, Any]) -> Dict[str, Any]:
     if not GEMINI_API_KEY:
         return {"verified": False, "error": "Gemini not configured"}
 
-    model = genai.GenerativeModel('gemini-1.5-flash')
-
     search_prompt = f"""
     You are a cricket fact-checker verifying a claim.
 
@@ -1163,14 +1266,8 @@ def verify_claim_with_web_search(claim: Dict[str, Any]) -> Dict[str, Any]:
     Return ONLY valid JSON.
     """
 
-    response = model.generate_content(search_prompt)
-    response_text = response.text.strip()
-
-    if response_text.startswith('```'):
-        response_text = response_text.split('```')[1]
-        if response_text.startswith('json'):
-            response_text = response_text[4:]
-    response_text = response_text.strip()
+    response_text = call_gemini(search_prompt)
+    response_text = clean_json_response(response_text)
 
     try:
         result = json.loads(response_text)
@@ -1511,5 +1608,6 @@ def get_rate_limit():
         "remaining": remaining,
         "daily_limit": DAILY_LIMIT,
         "status": "OK" if remaining > 0 else "LIMIT_REACHED",
+        "model": GEMINI_MODEL,
         "message": f"{remaining} requests remaining today" if remaining > 0 else "Daily limit reached. Service resumes tomorrow."
     }
